@@ -8,26 +8,42 @@
 #include <string>
 #include <mutex>
 
+//#undef IS_TIMER_ON
+
 #ifdef IS_TIMER_ON
 
 struct timerInfo {
     std::string file;
     size_t line;
     std::string func;
-
+	
+	std::atomic<size_t> callsCnt;
     std::atomic<uint64_t> sumTime;
+};
+
+struct TimerHolder {
+    TimerHolder(const char* file, size_t line, const char* func);
+	
+    timerInfo* log_;
 };
 
 class Timer {
 public:
-    Timer(timerInfo* log) :
-        log_(log) { }
-    
-    void logTime(double delta) {
+	Timer(TimerHolder* th) : log_(th->log_) {
+		start_ = clock_t::now();
+	}
+	
+	~Timer() {
+		uint64_t delta = std::chrono::duration_cast<nanosec_t>(clock_t::now() - start_).count();
+		log_->callsCnt.fetch_add(1);
         log_->sumTime.fetch_add(delta);
-    }
+	}
 private:
-    timerInfo* log_;
+	using clock_t = std::chrono::high_resolution_clock;
+    using nanosec_t = std::chrono::nanoseconds;
+
+	timerInfo* log_;
+	std::chrono::time_point<clock_t> start_;
 };
 
 class Aggregator {
@@ -43,12 +59,12 @@ public:
     static Aggregator* getInstance() {
         // TODO: lock is required before allocation.
         if (nullptr == aggregator_) {
-            aggregator_ = new Aggregator(1000);
+            aggregator_ = new Aggregator(100000);
         }
         return aggregator_;
     }
 
-    Timer* createTimer(const char* file, size_t line, const char* func) {
+    timerInfo* createTimerInfo(const char* file, size_t line, const char* func) {
         size_t currSz = currSz_.fetch_add(1);
         if (currSz >= sz_) {
             // TODO: add "written msg" flag checking to avoid huge amount of "overflow" messages logged from each thread.
@@ -60,8 +76,9 @@ public:
         logs_[currSz].file = file;
         logs_[currSz].line = line;
         logs_[currSz].func = func;
+		logs_[currSz].callsCnt = 0;
         logs_[currSz].sumTime = 0.;
-        return new Timer(logs_ + currSz);
+        return logs_ + currSz;
     }
 
     void printStatistics() {
@@ -69,11 +86,13 @@ public:
         std::cout << std::setw(75) << "FILENAME"
                   << std::setw(5) << "LINE"
                   << std::setw(75) << "FUNCTION"
+				  << std::setw(10) << "CALLS"
                   << std::setw(10) << "TIME" << std::endl;
         for (size_t i = 0; i < currSz_; ++i) {
             std::cout << std::setw(75) << logs_[i].file
                       << std::setw(5) << logs_[i].line
                       << std::setw(75) << logs_[i].func
+					  << std::setw(10) << logs_[i].callsCnt
                       << std::setw(10) << logs_[i].sumTime * 1e-9 << std::endl;
         }
 		std::cout << "----------------------------------------" << std::endl;
@@ -98,19 +117,15 @@ private:
     std::mutex mtx;
 };
 
-#define TIMER_CREATE(ID) static auto timer_##ID## = Aggregator::getInstance()->createTimer(__FILE__, __LINE__, __func__); \
-        std::chrono::time_point<CLOCK_T> start_time_for_##ID## = CLOCK_T::now();
-#define CLOCK_T std::chrono::high_resolution_clock
-#define NANOSEC_T std::chrono::nanoseconds
-#define TIMER_START(ID) start_time_for_##ID## = CLOCK_T::now();
-#define TIMER_STOP(ID) timer_##ID##->logTime(std::chrono::duration_cast<NANOSEC_T>(CLOCK_T::now() - start_time_for_##ID##).count());                                   
+#define TIMER_RUN() static TimerHolder timer_holder___(__FILE__, __LINE__, __func__); \
+		Timer timer___(&timer_holder___);                               
 #define TIMER_PRINT_STATS() Aggregator::getInstance()->printStatistics();
+
+#define DUMMY() timer___.dummy();
 
 #else
 
-#define TIMER_CREATE(ID)
-#define TIMER_START(ID)
-#define TIMER_STOP(ID)
+#define TIMER_RUN()
 #define TIMER_PRINT_STATS()
 
 #endif // #ifdef TIMER_ON
