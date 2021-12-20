@@ -1,10 +1,37 @@
-Build tested on VS 2019 (14.2) with VS comand prompt:
-1) In "build" directory: cmake -A x64 /* provide "-DIS_TIMER_ON=Y" to enable the timer in your code */
+Билд проверен на VS 2019 (14.2) с VS command prompt:
+1) В директории "build": cmake -A x64
 2) cmake --build . --config=Release
-3) src\Release\main.exe
+3) Запуск src\Release\main.exe
 
-Logger-Timer usage:
-- The Timer is active and affects perfomance of your program only if you provide "-DIS_TIMER_ON=Y" when it is built with cmake; 
-- There are two main macro functions: TIMER_RUN(), TIMER_PRINT_STATS();
-- Use TIMER_RUN() to create and run new instance of timer; it will be active until the end of the scope (stops and saves statistics on destructor call);
-- To print calculated statistics use TIMER_PRINT_STATS();
+------ Использование Logger-Timer ------
+- Добавить loggertimer.h и loggertimer.cpp в отдельную библиотеку
+- Заинклюдить loggertimer.h в нужный файл, вызвать макрос TIMER_RUN() в начале функции
+- Вызвать в main() TIMER_PRINT_STATS() (требует инклюда loggertimer.h)
+
+
+------ Генератор тестовой кодовой базы ------
+- Представляет собой один скрипт "data/codegen.py", который генерирует определения нескольких функций (с названием 
+"foo*номер*", например "foo12"). Количество этих функций -- параметр скрипта.
+- Каждая функция содержит цикл, содержаций вызов одной функции генерации случайного числа rand(). Таким образом, количество 
+итераций циклов определяет сложность выполнения функции. Это и есть один из параметров скрипта.
+- Каждая из генерируемых функций "foo*номер*" в свою очередь вызывается из одной главной функции -- trampoline(). Причём все 
+вызовы происходят в цикле. Количество итераций этого цикла -- т.е. количество вызовов на одну функцию -- также является
+параметром скрипта.
+- Итоговой тестовой программой запускается этот trampoline(). Но это происходит не в одном потоке, а в 10.
+
+Итого, скрипт принимает три параметра:
+- Количество функций
+- Количество итераций цикла с rand() в каждой функции
+- Количество вызовов каждой функции из trampoline()
+
+Генерирует файлы "out.h" и "out.cpp" с описанным выше содержанием. Нужно положить их (возможно, с заменой) в include. Добавлены 
+как отдельная библиотека к исполняемому main.cpp.
+
+Пример вызова:
+codegen.py 100 60 100000
+Результат -- "out.h" и "out.cpp", в которых 100 функций, 
+
+------ Отчёт ------
+
+Отчёт (TimeMeasurements.pdf) представляет собой результат запуска таймера при различных значениях второго параметра (количество 
+итераций цикла в каждой функции), т.е. различной сложности функции.
